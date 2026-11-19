@@ -73,7 +73,7 @@ jobs:
           fi
 
       - name: Check out target repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: ${{ matrix.repository }}
           token: ${{ secrets.REPO_PUSH_TOKEN }}
