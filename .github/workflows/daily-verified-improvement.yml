@@ -1,0 +1,108 @@
+name: Daily verified repo improvement
+
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-verified-repo-improvement
+  cancel-in-progress: false
+
+jobs:
+  improve:
+    name: Improve ${{ matrix.repository }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        repository:
+          - t-lingeswar-py/demo-project
+          - t-lingeswar-py/localrepo
+          - t-lingeswar-py/house-pricing-analysis
+          - t-lingeswar-py/Cross-language-retrieval-
+          - t-lingeswar-py/ml-pipeline-demo
+          - t-lingeswar-py/gps-microservice
+          - t-lingeswar-py/terraform-k8s-cicd
+          - t-lingeswar-py/Openfaas
+          - t-lingeswar-py/poeticbot
+          - t-lingeswar-py/ML_Research
+          - t-lingeswar-py/Translation_bot-Eng-to-french-
+          - t-lingeswar-py/Bookify
+          - t-lingeswar-py/Production-Monitoring-Auto-Healing-System
+          - t-lingeswar-py/custom-object-detection
+          - t-lingeswar-py/Big-data
+
+    steps:
+      - name: Check required secrets
+        shell: bash
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          REPO_PUSH_TOKEN: ${{ secrets.REPO_PUSH_TOKEN }}
+        run: |
+          if [[ -z "$OPENAI_API_KEY" || -z "$REPO_PUSH_TOKEN" ]]; then
+            echo "Add OPENAI_API_KEY and REPO_PUSH_TOKEN to this repository's Actions secrets." >&2
+            exit 1
+          fi
+
+      - name: Check out target repository
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ matrix.repository }}
+          token: ${{ secrets.REPO_PUSH_TOKEN }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Run constrained Codex maintenance
+        id: codex
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          permission-profile: ":workspace"
+          prompt: |
+            Maintain this repository by resolving at most one top verified quality issue.
+            Read and follow repository guidance, then inspect the relevant code and existing checks.
+            Select a concrete issue supported by repository evidence. Prefer a focused bug fix,
+            reliability improvement, security fix, or correction to materially misleading docs.
+            Make no change if the issue is uncertain, already fixed, or cannot be verified.
+            Keep the change small and within existing project conventions. Do not add dependencies.
+            Do not change CI workflows, deployment or infrastructure configuration, credentials,
+            generated files, datasets, model artifacts, notebooks, or lockfiles.
+            Run the existing relevant checks for the change. If checks fail or the fix is uncertain,
+            revert your edits so the working tree is clean. Do not commit or push; a later workflow
+            step handles publication. Summarize the issue, change, and checks, or say no change was
+            justified.
+
+      - name: Validate and publish at most one commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.REPO_PUSH_TOKEN }}
+          REPOSITORY: ${{ matrix.repository }}
+        run: |
+          if git diff --quiet; then
+            echo "No verified change; skipping."
+            exit 0
+          fi
+
+          git diff --check
+
+          while IFS= read -r path; do
+            case "$path" in
+              .env|.env.*|*.tfstate|*.tfstate.*|*.lock|*.ipynb|*.zip|*.pt|*.onnx|.github/workflows/*|data/*|runs/*)
+                echo "Blocked sensitive, generated, or high-risk path: $path" >&2
+                exit 1
+                ;;
+            esac
+          done < <(git diff --name-only)
+
+          branch="$(gh api "repos/$REPOSITORY" --jq .default_branch)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: apply verified quality improvement"
+          git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" \
+            push origin "HEAD:refs/heads/$branch"
