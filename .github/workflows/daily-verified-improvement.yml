@@ -18,7 +18,7 @@ jobs:
     outputs:
       repositories: ${{ steps.matrix.outputs.repositories }}
     steps:
-      - name: Select 15 repositories for today's run
+      - name: Inspect all repositories; allow changes in 15
         id: matrix
         shell: bash
         run: |
@@ -45,9 +45,12 @@ jobs:
               "t-lingeswar-py/Big-data",
           ]
           day_of_year = datetime.datetime.now(datetime.timezone.utc).timetuple().tm_yday
-          skipped = day_of_year % len(repositories)
-          selected = repositories[:skipped] + repositories[skipped + 1:]
-          print(f"repositories={json.dumps(selected)}")
+          read_only = day_of_year % len(repositories)
+          matrix = [
+              {"repository": repository, "allow_change": index != read_only}
+              for index, repository in enumerate(repositories)
+          ]
+          print(f"repositories={json.dumps(matrix)}")
           PY
 
   improve:
@@ -84,9 +87,11 @@ jobs:
         uses: openai/codex-action@v1
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-          permission-profile: ":workspace"
+          permission-profile: ${{ matrix.allow_change && ':workspace' || ':read-only' }}
           prompt: |
-            Maintain this repository by resolving at most one top verified quality issue.
+            Today's write permission for this repository is ${{ matrix.allow_change }}.
+            If it is false, audit the repository and report the top verified quality issue without
+            editing any files. If it is true, resolve at most one top verified quality issue.
             Read and follow repository guidance, then inspect the relevant code and existing checks.
             Select a concrete issue supported by repository evidence. Prefer a focused bug fix,
             reliability improvement, security fix, or correction to materially misleading docs.
